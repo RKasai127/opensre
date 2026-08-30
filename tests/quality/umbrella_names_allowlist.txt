@@ -21,7 +21,6 @@ gateway/transports/buzz/inbound_handler.py|module|inbound_handler
 gateway/transports/telegram/inbound_handler.py|module|inbound_handler
 infrastructure/logging/shell_handler.py|class|ShellLogHandler
 infrastructure/logging/shell_handler.py|module|shell_handler
-integrations/llm_cli/codex_oauth.py|class|_CallbackHandler
 
 # wrapper
 core/tool_framework/utils/sql_wrapper.py|module|sql_wrapper
@@ -36,7 +35,6 @@ config/scope_context.py|module|scope_context
 core/agent_harness/grounding/context.py|class|GroundingContext
 core/agent_harness/grounding/context.py|module|context
 core/agent_harness/ports.py|class|PromptContextProvider
-core/agent_harness/prompts/assistant/turn.py|class|AssistantPromptContextProvider
 core/agent_harness/prompts/grounding/provider.py|class|DefaultPromptContextProvider
 core/agent_harness/tools/action_tools.py|class|IntegrationsContext
 core/agent_harness/tools/action_tools.py|class|_IntegrationContextSession
