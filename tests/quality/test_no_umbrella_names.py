@@ -48,9 +48,10 @@ _UMBRELLA_WORDS = frozenset(
 _NETWORK_PORT_PREFIXES = frozenset(
     {"http", "https", "tcp", "udp", "grpc", "ws", "wss", "ssh", "ftp", "smtp", "dns", "ip"}
 )
+_HEXAGONAL_PORT_BASE_NAMES = frozenset({"Protocol", "ABC"})
 _BARE_UMBRELLA_WORDS = frozenset({"utils", "helpers", "common", "misc"})
 _ALLOWLIST_PATH = Path(__file__).resolve().parent / "umbrella_names_allowlist.txt"
-_CLASS_NAME_PART_REGEX = re.compile(r"[A-Z][a-z0-9]*|[a-z0-9]+")
+_CLASS_NAME_PART_REGEX = re.compile(r"[A-Z]+[0-9]*(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
 
 
 def _load_allowlist() -> set[tuple[str, str, str]]:
@@ -71,8 +72,28 @@ def _is_test_path(path: Path) -> bool:
     return "tests" in path.parts or path.name.startswith("test_")
 
 
-def _is_network_port(word: str, previous_word: str) -> bool:
-    return word == "port" and previous_word in _NETWORK_PORT_PREFIXES
+def _is_network_port(word: str, previous_word: str, is_hexagonal_port: bool) -> bool:
+    return word == "port" and previous_word in _NETWORK_PORT_PREFIXES and not is_hexagonal_port
+
+
+def _hexagonal_port_base_names(tree: ast.AST) -> frozenset[str]:
+    names = set(_HEXAGONAL_PORT_BASE_NAMES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in ("typing", "abc"):
+            for alias in node.names:
+                if alias.name in _HEXAGONAL_PORT_BASE_NAMES and alias.asname:
+                    names.add(alias.asname)
+    return frozenset(names)
+
+
+def _is_hexagonal_port_class(node: ast.ClassDef, base_names: frozenset[str]) -> bool:
+    for base in node.bases:
+        if isinstance(base, ast.Subscript):
+            base = base.value
+        name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", None)
+        if name in base_names:
+            return True
+    return False
 
 
 def _split_module_name(name: str) -> list[str]:
@@ -83,13 +104,13 @@ def _split_class_name(name: str) -> list[str]:
     return [match.group(0).lower() for match in _CLASS_NAME_PART_REGEX.finditer(name.strip("_"))]
 
 
-def _offending_word(words: list[str]) -> str | None:
+def _offending_word(words: list[str], is_hexagonal_port: bool = False) -> str | None:
     if len(words) == 1 and words[0] in _BARE_UMBRELLA_WORDS:
         return words[0]
 
     previous_word: str = ""
     for word in words:
-        if word in _UMBRELLA_WORDS and not _is_network_port(word, previous_word):
+        if word in _UMBRELLA_WORDS and not _is_network_port(word, previous_word, is_hexagonal_port):
             return word
 
         previous_word = word
@@ -108,9 +129,13 @@ def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
     if offending_word is not None:
         hits.append(("module", module_name))
 
+    hexagonal_port_base_names: frozenset[str] = _hexagonal_port_base_names(tree)
+
     class _Visitor(ast.NodeVisitor):
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            offending_word = _offending_word(_split_class_name(node.name))
+            is_hexagonal_port = _is_hexagonal_port_class(node, hexagonal_port_base_names)
+            offending_word = _offending_word(_split_class_name(node.name), is_hexagonal_port)
+
             if offending_word is not None:
                 hits.append(("class", node.name))
 
@@ -285,3 +310,61 @@ def test_nested_class_inside_classdef_is_not_detected() -> None:
     hits = _umbrella_offenses(Path("core/u.py"), tree)
 
     assert hits == []
+
+
+def test_protocol_http_port_acronym_class_is_detected() -> None:
+    tree = ast.parse("class HTTPPort(Protocol):\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert ("class", "HTTPPort") in hits
+
+
+def test_http_port_acronym_class_name_is_exempt() -> None:
+    tree = ast.parse("class HTTPPort:\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert hits == []
+
+
+def test_tcp_port_acronym_class_name_is_exempt() -> None:
+    tree = ast.parse("class TCPPort:\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert hits == []
+
+
+def test_abc_http_port_class_is_detected() -> None:
+    tree = ast.parse("class HttpPort(ABC):\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert ("class", "HttpPort") in hits
+
+
+def test_protocol_as_second_base_class_is_still_detected() -> None:
+    tree = ast.parse("class HttpPort(ExecutionGate, Protocol):\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert ("class", "HttpPort") in hits
+
+
+def test_aliased_protocol_import_is_still_detected() -> None:
+    tree = ast.parse(
+        "from typing import Protocol as _Protocol\n\n\nclass HttpPort(_Protocol):\n    pass\n"
+    )
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert ("class", "HttpPort") in hits
+
+
+def test_generic_protocol_port_class_is_detected() -> None:
+    tree = ast.parse(
+        "from typing import Protocol, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "\n"
+        "\n"
+        "class HttpPort(Protocol[T]):\n"
+        "    pass\n"
+    )
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert ("class", "HttpPort") in hits
