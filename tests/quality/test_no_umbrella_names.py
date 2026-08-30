@@ -117,17 +117,8 @@ def _offending_word(words: list[str], is_hexagonal_port: bool = False) -> str | 
     return None
 
 
-def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
+def _class_name_offenses(tree: ast.AST) -> list[tuple[str, str]]:
     hits: list[tuple[str, str]] = []
-
-    if path.stem == "__init__":
-        module_name = path.parent.stem
-    else:
-        module_name = path.stem
-
-    offending_word = _offending_word(_split_module_name(module_name))
-    if offending_word is not None:
-        hits.append(("module", module_name))
 
     hexagonal_port_base_names: frozenset[str] = _hexagonal_port_base_names(tree)
 
@@ -149,12 +140,44 @@ def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
     return hits
 
 
+def _package_directories(root: Path, files: list[Path]) -> set[Path]:
+    dirs: set[Path] = set()
+    for file in files:
+        for rel_parent in file.relative_to(root).parents:
+            if rel_parent == Path("."):
+                continue
+            dirs.add(rel_parent)
+    return dirs
+
+
+def _module_name_offenses(root: Path, files: list[Path]) -> set[tuple[str, str, str]]:
+    hits: set[tuple[str, str, str]] = set()
+
+    for package_dir in _package_directories(root, files):
+        offending_word = _offending_word(_split_module_name(package_dir.name))
+        if offending_word is not None:
+            # Namespace packages have no __init__.py on disk, so append __init__.py
+            # for reporting. Add it to the allowlist path too when allowlisting.
+            report_path = (package_dir / "__init__.py").as_posix()
+            hits.add((report_path, "module", package_dir.name))
+
+    for file in files:
+        offending_word = _offending_word(_split_module_name(file.stem))
+        if offending_word is not None:
+            relpath = file.relative_to(root).as_posix()
+            hits.add((relpath, "module", file.stem))
+
+    return hits
+
+
 def _scan_offenders(root: Path) -> set[tuple[str, str, str]]:
     offenders: set[tuple[str, str, str]] = set()
+    files: list[Path] = []
 
     for path in product_python_files(root):
         if _is_test_path(path):
             continue
+        files.append(path)
         source = path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(source, filename=str(path))
@@ -162,8 +185,12 @@ def _scan_offenders(root: Path) -> set[tuple[str, str, str]]:
             continue
 
         relpath = path.relative_to(_REPO_ROOT).as_posix()
-        for kind, name in _umbrella_offenses(path, tree):
+        for kind, name in _class_name_offenses(tree):
             offenders.add((relpath, kind, name))
+
+    package = root.relative_to(_REPO_ROOT).as_posix()
+    for rel_from_root, kind, name in _module_name_offenses(root, files):
+        offenders.add((f"{package}/{rel_from_root}", kind, name))
 
     return offenders
 
@@ -176,9 +203,11 @@ def test_product_packages_have_no_umbrella_names(package: str) -> None:
 
     offenders: list[str] = []
     allowlist: set[tuple[str, str, str]] = _load_allowlist()
+    files: list[Path] = []
     for path in product_python_files(root):
         if _is_test_path(path):
             continue
+        files.append(path)
         source = path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(source, filename=str(path))
@@ -187,11 +216,18 @@ def test_product_packages_have_no_umbrella_names(package: str) -> None:
             continue
 
         relpath = path.relative_to(_REPO_ROOT).as_posix()
-        for kind, name in _umbrella_offenses(path, tree):
+        for kind, name in _class_name_offenses(tree):
             if (relpath, kind, name) in allowlist:
                 continue
 
             offenders.append(f"{relpath}:{kind}: {name}")
+
+    for rel_from_root, kind, name in _module_name_offenses(root, files):
+        relpath = f"{package}/{rel_from_root}"
+        if (relpath, kind, name) in allowlist:
+            continue
+
+        offenders.append(f"{relpath}:{kind}: {name}")
 
     assert offenders == [], (
         "New umbrella name introduced (see docs/NAMING.md for the vocabulary to use "
@@ -218,31 +254,23 @@ def test_umbrella_allowlist_has_no_stale_entries() -> None:
     )
 
 
-def test_offending_package_dunder_init_uses_parent_dir_name(tmp_path):
+def test_offending_package_dunder_init_uses_parent_dir_name(tmp_path: Path) -> None:
     offending_package_dir = tmp_path / "prompt_manager"
     offending_package_dir.mkdir()
 
     init_file = offending_package_dir / "__init__.py"
     init_file.write_text("")
 
-    tree = ast.parse("", filename=str(init_file))
-    hits = _umbrella_offenses(init_file, tree)
+    hits = _module_name_offenses(tmp_path, [init_file])
 
-    assert ("module", "prompt_manager") in hits
+    assert ("prompt_manager/__init__.py", "module", "prompt_manager") in hits
 
 
 def test_network_port_module_name_is_exempt() -> None:
-    tree = ast.parse("")
-    hits = _umbrella_offenses(Path("infrastructure/network/http_port.py"), tree)
+    path = Path("infrastructure/network/http_port.py")
+    hits = _module_name_offenses(path.parent, [path])
 
-    assert hits == []
-
-
-def test_network_port_class_name_is_exempt() -> None:
-    tree = ast.parse("class HttpPort:\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
-
-    assert hits == []
+    assert hits == set()
 
 
 def test_network_port_package_dunder_init_is_exempt(tmp_path: Path) -> None:
@@ -251,22 +279,71 @@ def test_network_port_package_dunder_init_is_exempt(tmp_path: Path) -> None:
     init_file = package_dir / "__init__.py"
     init_file.write_text("")
 
-    tree = ast.parse("", filename=str(init_file))
-    hits = _umbrella_offenses(init_file, tree)
+    hits = _module_name_offenses(tmp_path, [init_file])
+
+    assert hits == set()
+
+
+def test_namespace_package_without_init_is_detected(tmp_path: Path) -> None:
+    pkg_dir = tmp_path / "prompt_manager"
+    pkg_dir.mkdir()
+    (pkg_dir / "service.py").write_text("")
+
+    hits = _module_name_offenses(tmp_path, [pkg_dir / "service.py"])
+
+    assert ("prompt_manager/__init__.py", "module", "prompt_manager") in hits
+
+
+def test_nested_namespace_package_all_ancestor_levels_are_detected(tmp_path: Path) -> None:
+    deep = tmp_path / "prompt_manager" / "sub"
+    deep.mkdir(parents=True)
+    (deep / "service.py").write_text("")
+
+    hits = _module_name_offenses(tmp_path, [deep / "service.py"])
+
+    assert any(name == "prompt_manager" for _, _, name in hits)
+
+
+def test_namespace_package_non_offending_name_is_not_detected(tmp_path: Path) -> None:
+    pkg_dir = tmp_path / "grounding"
+    pkg_dir.mkdir()
+    (pkg_dir / "provider.py").write_text("")
+
+    hits = _module_name_offenses(tmp_path, [pkg_dir / "provider.py"])
+
+    assert hits == set()
+
+
+def test_syntax_error_file_name_is_still_detected(tmp_path: Path) -> None:
+    bad_file = tmp_path / "session_manager.py"
+    bad_file.write_text("def broken(:\n")
+
+    hits = _module_name_offenses(tmp_path, [bad_file])
+
+    assert ("session_manager.py", "module", "session_manager") in hits
+
+
+def test_hexagonal_port_still_flagged() -> None:
+    path = Path("infrastructure/storage/storage_port.py")
+    tree = ast.parse("class StoragePort:\n    pass\n")
+
+    class_hits = _class_name_offenses(tree)
+    module_hits = _module_name_offenses(path.parent, [path])
+
+    assert class_hits == [("class", "StoragePort")]
+    assert ("storage_port.py", "module", "storage_port") in module_hits
+
+
+def test_network_port_class_name_is_exempt() -> None:
+    tree = ast.parse("class HttpPort:\n    pass\n")
+    hits = _class_name_offenses(tree)
 
     assert hits == []
 
 
-def test_hexagonal_port_still_flagged() -> None:
-    tree = ast.parse("class StoragePort:\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/storage/storage_port.py"), tree)
-
-    assert hits == [("module", "storage_port"), ("class", "StoragePort")]
-
-
 def test_class_inside_if_block_is_detected() -> None:
     tree = ast.parse("if True:\n    class RequestManager:\n        pass\n")
-    hits = _umbrella_offenses(Path("core/x.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "RequestManager") in hits
 
@@ -279,70 +356,70 @@ def test_class_inside_module_level_except_importerror_is_detected() -> None:
         "    class FallbackHandler(Exception):\n"
         "        pass\n"
     )
-    hits = _umbrella_offenses(Path("integrations/aws/example_client.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "FallbackHandler") in hits
 
 
 def test_class_inside_for_loop_is_detected() -> None:
     tree = ast.parse("for _ in range(1):\n    class BazEngine:\n        pass\n")
-    hits = _umbrella_offenses(Path("core/z.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "BazEngine") in hits
 
 
 def test_class_inside_with_block_is_detected() -> None:
     tree = ast.parse("with suppress(Exception):\n    class QueueCoordinator:\n        pass\n")
-    hits = _umbrella_offenses(Path("core/w.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "QueueCoordinator") in hits
 
 
 def test_class_inside_function_is_not_detected() -> None:
     tree = ast.parse("def build():\n    class TempManager:\n        pass\n    return TempManager\n")
-    hits = _umbrella_offenses(Path("core/v.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert hits == []
 
 
 def test_nested_class_inside_classdef_is_not_detected() -> None:
     tree = ast.parse("class Outer:\n    class InnerManager:\n        pass\n")
-    hits = _umbrella_offenses(Path("core/u.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert hits == []
 
 
 def test_protocol_http_port_acronym_class_is_detected() -> None:
     tree = ast.parse("class HTTPPort(Protocol):\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "HTTPPort") in hits
 
 
 def test_http_port_acronym_class_name_is_exempt() -> None:
     tree = ast.parse("class HTTPPort:\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert hits == []
 
 
 def test_tcp_port_acronym_class_name_is_exempt() -> None:
     tree = ast.parse("class TCPPort:\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert hits == []
 
 
 def test_abc_http_port_class_is_detected() -> None:
     tree = ast.parse("class HttpPort(ABC):\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "HttpPort") in hits
 
 
 def test_protocol_as_second_base_class_is_still_detected() -> None:
     tree = ast.parse("class HttpPort(ExecutionGate, Protocol):\n    pass\n")
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "HttpPort") in hits
 
@@ -351,7 +428,7 @@ def test_aliased_protocol_import_is_still_detected() -> None:
     tree = ast.parse(
         "from typing import Protocol as _Protocol\n\n\nclass HttpPort(_Protocol):\n    pass\n"
     )
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+    hits = _class_name_offenses(tree)
 
     assert ("class", "HttpPort") in hits
 
@@ -365,6 +442,5 @@ def test_generic_protocol_port_class_is_detected() -> None:
         "class HttpPort(Protocol[T]):\n"
         "    pass\n"
     )
-    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
-
+    hits = _class_name_offenses(tree)
     assert ("class", "HttpPort") in hits
