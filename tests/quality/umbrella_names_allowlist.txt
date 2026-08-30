@@ -8,8 +8,6 @@
 
 # bare utils/helpers/common/misc
 integrations/github/helpers.py|module|helpers
-surfaces/interactive_shell/runtime/utils/__init__.py|module|utils
-surfaces/interactive_shell/utils/__init__.py|module|utils
 
 # engine
 infrastructure/filestorage/engine.py|module|engine
@@ -61,6 +59,7 @@ integrations/github/tools/security_fix/context.py|module|context
 integrations/slack/message_context.py|module|message_context
 surfaces/interactive_shell/grounding/cli_reference.py|class|ShellPromptContextProvider
 surfaces/interactive_shell/runtime/context.py|module|context
+surfaces/shared/terminal/feedback/context_display.py|module|context_display
 tools/cross_vendor/fix_sentry_issue/context.py|class|IssueContext
 tools/cross_vendor/fix_sentry_issue/context.py|module|context
 tools/investigation/reporting/context/schema.py|class|ReportContext
