@@ -9,6 +9,8 @@
 # bare utils/helpers/common/misc
 integrations/github/helpers.py|module|helpers
 integrations/helm/helpers.py|module|helpers
+surfaces/interactive_shell/runtime/utils/__init__.py|module|utils
+surfaces/interactive_shell/utils/__init__.py|module|utils
 
 # engine
 infrastructure/filestorage/engine.py|module|engine
@@ -48,6 +50,7 @@ core/context_budget.py|module|context_budget
 core/state/channel_context.py|module|channel_context
 core/state/runtime_slices.py|class|DeliveryContextSlice
 core/tool/contracts.py|class|AgentToolContext
+core/tool_framework/utils/__init__.py|module|utils
 gateway/core/session/gateway_chat_context.py|module|gateway_chat_context
 infrastructure/analytics/repl_context.py|module|repl_context
 infrastructure/analytics/usage_context.py|module|usage_context
@@ -62,3 +65,4 @@ surfaces/interactive_shell/runtime/context.py|module|context
 tools/cross_vendor/fix_sentry_issue/context.py|class|IssueContext
 tools/cross_vendor/fix_sentry_issue/context.py|module|context
 tools/investigation/reporting/context/schema.py|class|ReportContext
+tools/investigation/reporting/context/__init__.py|module|context

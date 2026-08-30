@@ -88,7 +88,11 @@ def _offending_word(words: list[str]) -> str | None:
 
 def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
     hits: list[tuple[str, str]] = []
-    module_name = path.stem
+
+    if path.stem == "__init__":
+        module_name = path.parent.stem
+    else:
+        module_name = path.stem
 
     offending_word = _offending_word(_split_module_name(module_name))
 
@@ -172,3 +176,16 @@ def test_umbrella_allowlist_has_no_stale_entries() -> None:
         "current offender (already renamed, or never existed). Remove them:\n"
         + "\n".join(sorted(f"{path}|{kind}|{name}" for path, kind, name in stale_entries))
     )
+
+
+def test_offending_package_dunder_init_uses_parent_dir_name(tmp_path):
+    offending_package_dir = tmp_path / "prompt_manager"
+    offending_package_dir.mkdir()
+
+    init_file = offending_package_dir / "__init__.py"
+    init_file.write_text("")
+
+    tree = ast.parse("", filename=str(init_file))
+    hits = _umbrella_offenses(init_file, tree)
+
+    assert ("module", "prompt_manager") in hits
