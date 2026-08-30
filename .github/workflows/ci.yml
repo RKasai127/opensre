@@ -511,6 +511,7 @@ jobs:
               tests/quality
               tests/packaging
               tests/scheduler
+              tests/quality
               gateway/tests
           # install/ + quickstart/ are opt-in live (CDN/brew/LLM); not PR CI.
           - os: ubuntu-latest
