@@ -410,6 +410,10 @@ def test_tcp_port_acronym_class_name_is_exempt() -> None:
     assert hits == []
 
 
+def test_split_class_name_keeps_acronym_with_digit_together() -> None:
+    assert _split_class_name("S3Client") == ["s3", "client"]
+
+
 def test_abc_http_port_class_is_detected() -> None:
     tree = ast.parse("class HttpPort(ABC):\n    pass\n")
     hits = _class_name_offenses(tree)
