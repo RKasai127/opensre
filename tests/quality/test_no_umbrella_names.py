@@ -45,6 +45,9 @@ _UMBRELLA_WORDS = frozenset(
         "context",
     }
 )
+_NETWORK_PORT_PREFIXES = frozenset(
+    {"http", "https", "tcp", "udp", "grpc", "ws", "wss", "ssh", "ftp", "smtp", "dns", "ip"}
+)
 _BARE_UMBRELLA_WORDS = frozenset({"utils", "helpers", "common", "misc"})
 _ALLOWLIST_PATH = Path(__file__).resolve().parent / "umbrella_names_allowlist.txt"
 _CLASS_NAME_PART_REGEX = re.compile(r"[A-Z][a-z0-9]*|[a-z0-9]+")
@@ -68,6 +71,10 @@ def _is_test_path(path: Path) -> bool:
     return "tests" in path.parts or path.name.startswith("test_")
 
 
+def _is_network_port(word: str, previous_word: str) -> bool:
+    return word == "port" and previous_word in _NETWORK_PORT_PREFIXES
+
+
 def _split_module_name(name: str) -> list[str]:
     return [part for part in name.strip("_").lower().split("_") if part]
 
@@ -80,9 +87,12 @@ def _offending_word(words: list[str]) -> str | None:
     if len(words) == 1 and words[0] in _BARE_UMBRELLA_WORDS:
         return words[0]
 
+    previous_word: str = ""
     for word in words:
-        if word in _UMBRELLA_WORDS:
+        if word in _UMBRELLA_WORDS and not _is_network_port(word, previous_word):
             return word
+
+        previous_word = word
     return None
 
 
@@ -189,3 +199,36 @@ def test_offending_package_dunder_init_uses_parent_dir_name(tmp_path):
     hits = _umbrella_offenses(init_file, tree)
 
     assert ("module", "prompt_manager") in hits
+
+
+def test_network_port_module_name_is_exempt() -> None:
+    tree = ast.parse("")
+    hits = _umbrella_offenses(Path("infrastructure/network/http_port.py"), tree)
+
+    assert hits == []
+
+
+def test_network_port_class_name_is_exempt() -> None:
+    tree = ast.parse("class HttpPort:\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/network/transport.py"), tree)
+
+    assert hits == []
+
+
+def test_network_port_package_dunder_init_is_exempt(tmp_path: Path) -> None:
+    package_dir = tmp_path / "http_port"
+    package_dir.mkdir()
+    init_file = package_dir / "__init__.py"
+    init_file.write_text("")
+
+    tree = ast.parse("", filename=str(init_file))
+    hits = _umbrella_offenses(init_file, tree)
+
+    assert hits == []
+
+
+def test_hexagonal_port_still_flagged() -> None:
+    tree = ast.parse("class StoragePort:\n    pass\n")
+    hits = _umbrella_offenses(Path("infrastructure/storage/storage_port.py"), tree)
+
+    assert hits == [("module", "storage_port"), ("class", "StoragePort")]
