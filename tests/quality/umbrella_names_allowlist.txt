@@ -46,6 +46,7 @@ core/state/channel_context.py|module|channel_context
 core/state/runtime_slices.py|class|DeliveryContextSlice
 core/tool/contracts.py|class|AgentToolContext
 core/tool_framework/utils/__init__.py|module|utils
+core/agent_harness/session/persistence/contracts.py|class|RestoreContextKey
 gateway/core/session/gateway_chat_context.py|module|gateway_chat_context
 infrastructure/analytics/repl_context.py|module|repl_context
 infrastructure/analytics/usage_context.py|module|usage_context
