@@ -8,23 +8,16 @@
 
 # bare utils/helpers/common/misc
 integrations/github/helpers.py|module|helpers
-integrations/groundcover/helpers.py|module|helpers
 integrations/helm/helpers.py|module|helpers
 
 # engine
 infrastructure/filestorage/engine.py|module|engine
-infrastructure/safety/guardrails/engine.py|class|GuardrailEngine
-infrastructure/safety/guardrails/engine.py|module|engine
 
 # manager
 core/agent_harness/session/lifecycle.py|class|SessionManager
 gateway/core/lifecycle/credential_hydration.py|class|SecretsManagerClient
-surfaces/interactive_shell/runtime/background/workers.py|class|BackgroundTaskManager
-surfaces/interactive_shell/runtime/core/prompt_manager.py|class|PromptManager
-surfaces/interactive_shell/runtime/core/prompt_manager.py|module|prompt_manager
 
 # handler
-core/agent/handle_conclusion.py|class|ConclusionHandler
 gateway/transports/buzz/inbound_handler.py|module|inbound_handler
 gateway/transports/telegram/inbound_handler.py|module|inbound_handler
 infrastructure/logging/shell_handler.py|class|ShellLogHandler
@@ -35,9 +28,7 @@ integrations/llm_cli/codex_oauth.py|class|_CallbackHandler
 core/tool_framework/utils/sql_wrapper.py|module|sql_wrapper
 
 # port (hexagonal sense — not network ports)
-infrastructure/delivery/reporting/slack_reactions.py|class|SlackReactionsPort
 integrations/hermes/sinks.py|class|AlarmDispatcherPort
-integrations/slack/reporting_adapter.py|class|_SlackReactionsPort
 tools/system/watch_dog/monitor.py|class|AlarmDispatcherPort
 
 # context
@@ -50,7 +41,6 @@ core/agent_harness/prompts/assistant/turn.py|class|AssistantPromptContextProvide
 core/agent_harness/prompts/grounding/provider.py|class|DefaultPromptContextProvider
 core/agent_harness/tools/action_tools.py|class|IntegrationsContext
 core/agent_harness/tools/action_tools.py|class|_IntegrationContextSession
-core/agent_harness/tools/tool_context.py|class|ActionToolContext
 core/agent_harness/tools/tool_context.py|module|tool_context
 core/agent_harness/turns/headless_adapters.py|class|EmptyPromptContextProvider
 core/agent_harness/turns/host_cancel.py|class|CancelProbeContext
@@ -60,19 +50,14 @@ core/state/runtime_slices.py|class|DeliveryContextSlice
 core/tool/contracts.py|class|AgentToolContext
 gateway/core/session/gateway_chat_context.py|module|gateway_chat_context
 infrastructure/analytics/repl_context.py|module|repl_context
-infrastructure/analytics/runtime_context.py|class|RuntimeContext
-infrastructure/analytics/runtime_context.py|module|runtime_context
 infrastructure/analytics/usage_context.py|module|usage_context
 infrastructure/harness_providers/message_context.py|module|message_context
-infrastructure/safety/masking/context.py|class|MaskingContext
-infrastructure/safety/masking/context.py|module|context
 integrations/github/tools/ci_fix/context.py|class|CiFixContext
 integrations/github/tools/ci_fix/context.py|module|context
 integrations/github/tools/security_fix/context.py|class|SecurityAlertContext
 integrations/github/tools/security_fix/context.py|module|context
 integrations/slack/message_context.py|module|message_context
 surfaces/interactive_shell/grounding/cli_reference.py|class|ShellPromptContextProvider
-surfaces/interactive_shell/runtime/context.py|class|ReplRuntimeContext
 surfaces/interactive_shell/runtime/context.py|module|context
 tools/cross_vendor/fix_sentry_issue/context.py|class|IssueContext
 tools/cross_vendor/fix_sentry_issue/context.py|module|context
