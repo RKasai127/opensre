@@ -46,12 +46,28 @@ _UMBRELLA_WORDS = frozenset(
     }
 )
 _NETWORK_PORT_PREFIXES = frozenset(
-    {"http", "https", "tcp", "udp", "grpc", "ws", "wss", "ssh", "ftp", "smtp", "dns", "ip"}
+    {
+        "http",
+        "https",
+        "tcp",
+        "udp",
+        "grpc",
+        "ws",
+        "wss",
+        "ssh",
+        "ftp",
+        "smtp",
+        "dns",
+        "ip",
+        "ipv",
+    }
 )
+_NETWORK_PORT_QUALIFIERS = frozenset({"listener", "server", "socket"})
 _HEXAGONAL_PORT_BASE_NAMES = frozenset({"Protocol", "ABC"})
 _BARE_UMBRELLA_WORDS = frozenset({"utils", "helpers", "common", "misc"})
 _ALLOWLIST_PATH = Path(__file__).resolve().parent / "umbrella_names_allowlist.txt"
 _CLASS_NAME_PART_REGEX = re.compile(r"[A-Z]+[0-9]*(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
+_VERSION_WORD_REGEX = re.compile(r"v?[0-9]+")
 
 
 def _load_allowlist() -> set[tuple[str, str, str]]:
@@ -72,14 +88,64 @@ def _is_test_path(path: Path) -> bool:
     return "tests" in path.parts or path.name.startswith("test_")
 
 
-def _is_network_port(word: str, previous_word: str, is_hexagonal_port: bool) -> bool:
-    return word == "port" and previous_word in _NETWORK_PORT_PREFIXES and not is_hexagonal_port
+def _without_trailing_digits(word: str) -> str:
+    return word.rstrip("0123456789")
+
+
+def _umbrella_word(word: str) -> str | None:
+    normalized = _without_trailing_digits(word)
+    if normalized in _UMBRELLA_WORDS:
+        return normalized
+    if normalized.endswith("s") and normalized[:-1] in _UMBRELLA_WORDS:
+        return normalized[:-1]
+    return None
+
+
+def _bare_umbrella_word(words: list[str]) -> str | None:
+    if len(words) == 2 and _VERSION_WORD_REGEX.fullmatch(words[1]) is None:
+        return None
+    if len(words) not in (1, 2):
+        return None
+    word = _without_trailing_digits(words[0])
+    return word if word in _BARE_UMBRELLA_WORDS else None
+
+
+def _is_network_prefix(word: str) -> bool:
+    return _without_trailing_digits(word) in _NETWORK_PORT_PREFIXES
+
+
+def _network_prefix_ends_at(words: list[str]) -> bool:
+    if not words:
+        return False
+    if _is_network_prefix(words[-1]):
+        return True
+    return len(words) >= 2 and _is_network_prefix("".join(words[-2:]))
+
+
+def _is_network_port(
+    word: str,
+    preceding_words: list[str],
+    is_hexagonal_port: bool,
+) -> bool:
+    if word != "port" or is_hexagonal_port:
+        return False
+    if _network_prefix_ends_at(preceding_words):
+        return True
+    return bool(
+        preceding_words
+        and preceding_words[-1] in _NETWORK_PORT_QUALIFIERS
+        and _network_prefix_ends_at(preceding_words[:-1])
+    )
 
 
 def _hexagonal_port_base_names(tree: ast.AST) -> frozenset[str]:
     names = set(_HEXAGONAL_PORT_BASE_NAMES)
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in ("typing", "abc"):
+        if isinstance(node, ast.ImportFrom) and node.module in (
+            "typing",
+            "typing_extensions",
+            "abc",
+        ):
             for alias in node.names:
                 if alias.name in _HEXAGONAL_PORT_BASE_NAMES and alias.asname:
                     names.add(alias.asname)
@@ -97,7 +163,11 @@ def _is_hexagonal_port_class(node: ast.ClassDef, base_names: frozenset[str]) -> 
 
 
 def _split_module_name(name: str) -> list[str]:
-    return [part for part in name.strip("_").lower().split("_") if part]
+    return [
+        match.group(0).lower()
+        for component in name.strip("_").split("_")
+        for match in _CLASS_NAME_PART_REGEX.finditer(component)
+    ]
 
 
 def _split_class_name(name: str) -> list[str]:
@@ -105,15 +175,18 @@ def _split_class_name(name: str) -> list[str]:
 
 
 def _offending_word(words: list[str], is_hexagonal_port: bool = False) -> str | None:
-    if len(words) == 1 and words[0] in _BARE_UMBRELLA_WORDS:
-        return words[0]
+    bare_word = _bare_umbrella_word(words)
+    if bare_word is not None:
+        return bare_word
 
-    previous_word: str = ""
-    for word in words:
-        if word in _UMBRELLA_WORDS and not _is_network_port(word, previous_word, is_hexagonal_port):
-            return word
-
-        previous_word = word
+    for index, word in enumerate(words):
+        offending_word = _umbrella_word(word)
+        if offending_word is not None and not _is_network_port(
+            offending_word,
+            words[:index],
+            is_hexagonal_port,
+        ):
+            return offending_word
     return None
 
 
@@ -341,6 +414,75 @@ def test_network_port_class_name_is_exempt() -> None:
     assert hits == []
 
 
+def test_banned_word_suffixes_do_not_bypass_guard() -> None:
+    for class_name in (
+        "RequestManager2",
+        "RequestManagers",
+        "StoragePorts",
+        "Utils2",
+        "UtilsV2",
+    ):
+        tree = ast.parse(f"class {class_name}:\n    pass\n")
+        assert _class_name_offenses(tree) == [("class", class_name)]
+
+    for module_name in (
+        "request_manager2.py",
+        "request_managers.py",
+        "storage_ports.py",
+        "utils_2.py",
+        "utils_v2.py",
+    ):
+        path = Path("core") / module_name
+        assert (module_name, "module", path.stem) in _module_name_offenses(path.parent, [path])
+
+    assert _class_name_offenses(ast.parse("class CommonConfig2:\n    pass\n")) == []
+
+
+def test_camel_case_module_name_does_not_bypass_guard() -> None:
+    path = Path("core/PromptManager.py")
+
+    assert ("PromptManager.py", "module", "PromptManager") in _module_name_offenses(
+        path.parent, [path]
+    )
+
+
+def test_versioned_network_port_names_are_exempt() -> None:
+    for class_name, module_name in (
+        ("HTTP2Port", "http2_port.py"),
+        ("HTTP2Ports", "http2_ports.py"),
+        ("IPv6Port", "ipv6_port.py"),
+    ):
+        tree = ast.parse(f"class {class_name}:\n    pass\n")
+        path = Path("infrastructure/network") / module_name
+
+        assert _class_name_offenses(tree) == []
+        assert _module_name_offenses(path.parent, [path]) == set()
+
+
+def test_compound_network_port_names_are_exempt() -> None:
+    tree = ast.parse("class HTTPServerPort:\n    pass\n")
+    path = Path("infrastructure/network/http_server_port.py")
+
+    assert _class_name_offenses(tree) == []
+    assert _module_name_offenses(path.parent, [path]) == set()
+
+
+def test_domain_word_between_network_prefix_and_port_is_not_exempt() -> None:
+    tree = ast.parse("class HttpServicePort:\n    pass\n")
+    path = Path("infrastructure/service/http_service_port.py")
+
+    assert _class_name_offenses(tree) == [("class", "HttpServicePort")]
+    assert ("http_service_port.py", "module", "http_service_port") in _module_name_offenses(
+        path.parent, [path]
+    )
+
+
+def test_versioned_network_port_protocol_is_detected() -> None:
+    tree = ast.parse("class HTTP2Ports(Protocol):\n    pass\n")
+
+    assert _class_name_offenses(tree) == [("class", "HTTP2Ports")]
+
+
 def test_class_inside_if_block_is_detected() -> None:
     tree = ast.parse("if True:\n    class RequestManager:\n        pass\n")
     hits = _class_name_offenses(tree)
@@ -430,11 +572,21 @@ def test_protocol_as_second_base_class_is_still_detected() -> None:
 
 def test_aliased_protocol_import_is_still_detected() -> None:
     tree = ast.parse(
-        "from typing import Protocol as _Protocol\n\n\nclass HttpPort(_Protocol):\n    pass\n"
+        "from typing import Protocol as _Protocol\n"
+        "from typing_extensions import Protocol as _ExtensionsProtocol\n"
+        "\n"
+        "\n"
+        "class HttpPort(_Protocol):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "class HTTP2Port(_ExtensionsProtocol):\n"
+        "    pass\n"
     )
     hits = _class_name_offenses(tree)
 
     assert ("class", "HttpPort") in hits
+    assert ("class", "HTTP2Port") in hits
 
 
 def test_generic_protocol_port_class_is_detected() -> None:

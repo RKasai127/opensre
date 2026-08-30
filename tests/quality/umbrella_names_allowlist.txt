@@ -27,7 +27,17 @@ infrastructure/logging/shell_handler.py|module|shell_handler
 core/tool_framework/utils/sql_wrapper.py|module|sql_wrapper
 
 # port (hexagonal sense — not network ports)
+core/agent_harness/ports.py|module|ports
 integrations/hermes/sinks.py|class|AlarmDispatcherPort
+surfaces/interactive_shell/runtime/investigation_adapter.py|class|ReplInvestigationLaunchPorts
+surfaces/interactive_shell/runtime/llm_provider_adapter.py|class|LlmProviderPorts
+surfaces/interactive_shell/runtime/llm_provider_adapter.py|class|ReplLlmProviderPorts
+surfaces/interactive_shell/runtime/slash_adapter.py|class|HeadlessSlashPorts
+surfaces/interactive_shell/runtime/slash_adapter.py|class|ReplSlashPorts
+surfaces/interactive_shell/runtime/slash_adapter.py|class|SlashPorts
+surfaces/interactive_shell/runtime/task_cancel_adapter.py|class|ReplTaskCancelPorts
+surfaces/interactive_shell/runtime/task_cancel_adapter.py|class|TaskCancelPorts
+tools/interactive_shell/shared/investigation_launch.py|class|InvestigationLaunchPorts
 tools/system/watch_dog/monitor.py|class|AlarmDispatcherPort
 
 # context
