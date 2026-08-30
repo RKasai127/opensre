@@ -8,6 +8,7 @@
 
 # bare utils/helpers/common/misc
 integrations/github/helpers.py|module|helpers
+integrations/grafana/tools/_helpers.py|module|_helpers
 
 # engine
 infrastructure/filestorage/engine.py|module|engine
@@ -36,8 +37,6 @@ core/agent_harness/grounding/context.py|class|GroundingContext
 core/agent_harness/grounding/context.py|module|context
 core/agent_harness/ports.py|class|PromptContextProvider
 core/agent_harness/prompts/grounding/provider.py|class|DefaultPromptContextProvider
-core/agent_harness/tools/action_tools.py|class|IntegrationsContext
-core/agent_harness/tools/action_tools.py|class|_IntegrationContextSession
 core/agent_harness/tools/tool_context.py|module|tool_context
 core/agent_harness/turns/headless_adapters.py|class|EmptyPromptContextProvider
 core/agent_harness/turns/host_cancel.py|class|CancelProbeContext
