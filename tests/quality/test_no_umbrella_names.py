@@ -105,6 +105,25 @@ def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
     return hits
 
 
+def _scan_offenders(root: Path) -> set[tuple[str, str, str]]:
+    offenders: set[tuple[str, str, str]] = set()
+
+    for path in product_python_files(root):
+        if _is_test_path(path):
+            continue
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError:
+            continue
+
+        relpath = path.relative_to(_REPO_ROOT).as_posix()
+        for kind, name in _umbrella_offenses(path, tree):
+            offenders.add((relpath, kind, name))
+
+    return offenders
+
+
 @pytest.mark.parametrize("package", _PRODUCT_ROOTS)
 def test_product_packages_have_no_umbrella_names(package: str) -> None:
     root = _REPO_ROOT / package
@@ -134,4 +153,22 @@ def test_product_packages_have_no_umbrella_names(package: str) -> None:
         "New umbrella name introduced (see docs/NAMING.md for the vocabulary to use "
         "instead). Rename it — do not add it to "
         "tests/quality/umbrella_names_allowlist.txt to silence this:\n" + "\n".join(offenders)
+    )
+
+
+def test_umbrella_allowlist_has_no_stale_entries() -> None:
+    allowlist: set[tuple[str, str, str]] = _load_allowlist()
+
+    offenders: set[tuple[str, str, str]] = set()
+    for package in _PRODUCT_ROOTS:
+        root = _REPO_ROOT / package
+        if not root.is_dir():
+            continue
+        offenders |= _scan_offenders(root)
+
+    stale_entries: set[tuple[str, str, str]] = allowlist - offenders
+    assert stale_entries == set(), (
+        "umbrella_names_allowlist.txt has entries that no longer match a real, "
+        "current offender (already renamed, or never existed). Remove them:\n"
+        + "\n".join(sorted(f"{path}|{kind}|{name}" for path, kind, name in stale_entries))
     )
