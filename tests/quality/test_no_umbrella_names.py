@@ -105,17 +105,22 @@ def _umbrella_offenses(path: Path, tree: ast.AST) -> list[tuple[str, str]]:
         module_name = path.stem
 
     offending_word = _offending_word(_split_module_name(module_name))
-
     if offending_word is not None:
         hits.append(("module", module_name))
 
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.ClassDef):
+    class _Visitor(ast.NodeVisitor):
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
             offending_word = _offending_word(_split_class_name(node.name))
-
             if offending_word is not None:
                 hits.append(("class", node.name))
 
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            pass
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            pass
+
+    _Visitor().visit(tree)
     return hits
 
 
@@ -232,3 +237,51 @@ def test_hexagonal_port_still_flagged() -> None:
     hits = _umbrella_offenses(Path("infrastructure/storage/storage_port.py"), tree)
 
     assert hits == [("module", "storage_port"), ("class", "StoragePort")]
+
+
+def test_class_inside_if_block_is_detected() -> None:
+    tree = ast.parse("if True:\n    class RequestManager:\n        pass\n")
+    hits = _umbrella_offenses(Path("core/x.py"), tree)
+
+    assert ("class", "RequestManager") in hits
+
+
+def test_class_inside_module_level_except_importerror_is_detected() -> None:
+    tree = ast.parse(
+        "try:\n"
+        "    from botocore.exceptions import ClientError\n"
+        "except ImportError:\n"
+        "    class FallbackHandler(Exception):\n"
+        "        pass\n"
+    )
+    hits = _umbrella_offenses(Path("integrations/aws/example_client.py"), tree)
+
+    assert ("class", "FallbackHandler") in hits
+
+
+def test_class_inside_for_loop_is_detected() -> None:
+    tree = ast.parse("for _ in range(1):\n    class BazEngine:\n        pass\n")
+    hits = _umbrella_offenses(Path("core/z.py"), tree)
+
+    assert ("class", "BazEngine") in hits
+
+
+def test_class_inside_with_block_is_detected() -> None:
+    tree = ast.parse("with suppress(Exception):\n    class QueueCoordinator:\n        pass\n")
+    hits = _umbrella_offenses(Path("core/w.py"), tree)
+
+    assert ("class", "QueueCoordinator") in hits
+
+
+def test_class_inside_function_is_not_detected() -> None:
+    tree = ast.parse("def build():\n    class TempManager:\n        pass\n    return TempManager\n")
+    hits = _umbrella_offenses(Path("core/v.py"), tree)
+
+    assert hits == []
+
+
+def test_nested_class_inside_classdef_is_not_detected() -> None:
+    tree = ast.parse("class Outer:\n    class InnerManager:\n        pass\n")
+    hits = _umbrella_offenses(Path("core/u.py"), tree)
+
+    assert hits == []
